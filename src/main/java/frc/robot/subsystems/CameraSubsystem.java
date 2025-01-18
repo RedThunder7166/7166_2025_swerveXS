@@ -11,7 +11,10 @@ import com.ctre.phoenix6.hardware.Pigeon2;
 import edu.wpi.first.apriltag.AprilTag;
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.numbers.N1;
+import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.LimelightHelpers;
@@ -51,6 +54,7 @@ public class CameraSubsystem extends SubsystemBase {
     public CameraSubsystem() {
     }
 
+    private final Matrix<N3, N1> stdDevs = VecBuilder.fill(.7,.7,9999999);
     private void updateVisionMegaTag1() {
         LimelightHelpers.PoseEstimate mt1 = LimelightHelpers.getBotPoseEstimate_wpiBlue(limelightName);
 
@@ -62,7 +66,7 @@ public class CameraSubsystem extends SubsystemBase {
         } else if (mt1.tagCount == 0)
             return;
 
-        m_driveSubsystem.setVisionMeasurementStdDevs(VecBuilder.fill(.5,.5,9999999));
+        m_driveSubsystem.setVisionMeasurementStdDevs(stdDevs);
         m_driveSubsystem.addVisionMeasurement(
             mt1.pose,
             mt1.timestampSeconds
@@ -78,7 +82,7 @@ public class CameraSubsystem extends SubsystemBase {
         if(mt2.tagCount == 0)
             return;
 
-        m_driveSubsystem.setVisionMeasurementStdDevs(VecBuilder.fill(.7,.7,9999999));
+        m_driveSubsystem.setVisionMeasurementStdDevs(stdDevs);
         m_driveSubsystem.addVisionMeasurement(
             mt2.pose,
             mt2.timestampSeconds
