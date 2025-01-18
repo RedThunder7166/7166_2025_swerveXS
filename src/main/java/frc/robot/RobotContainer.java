@@ -43,7 +43,7 @@ public class RobotContainer {
     public final CommandSwerveDrivetrain m_driveSubsystem = TunerConstants.createDrivetrain();
     public final CameraSubsystem m_cameraSubsystem = CameraSubsystem.getSingleton();
     {
-        m_cameraSubsystem.setDriveSubsystem(m_driveSubsystem);
+        m_cameraSubsystem.setDriveSubsystem(m_driveSubsystem, MaxSpeed, MaxAngularRate);
     }
 
     /* Path follower */
@@ -77,26 +77,37 @@ public class RobotContainer {
         );
 
         m_joystick.a().whileTrue(m_driveSubsystem.applyRequest(() -> brake));
-        m_joystick.b().whileTrue(m_driveSubsystem.applyRequest(() ->
-            point.withModuleDirection(new Rotation2d(-m_joystick.getLeftY(), -m_joystick.getLeftX()))
+        // m_joystick.b().whileTrue(m_driveSubsystem.applyRequest(() ->
+        //     point.withModuleDirection(new Rotation2d(-m_joystick.getLeftY(), -m_joystick.getLeftX()))
+        // ));
+
+        // m_joystick.pov(0).whileTrue(m_driveSubsystem.applyRequest(() ->
+        //     forwardStraight.withVelocityX(0.5).withVelocityY(0))
+        // );
+        // m_joystick.pov(180).whileTrue(m_driveSubsystem.applyRequest(() ->
+        //     forwardStraight.withVelocityX(-0.5).withVelocityY(0))
+        // );
+
+        // // Run SysId routines when holding back/start and X/Y.
+        // // Note that each routine should be run exactly once in a single log.
+        // m_joystick.back().and(m_joystick.y()).whileTrue(m_driveSubsystem.sysIdDynamic(Direction.kForward));
+        // m_joystick.back().and(m_joystick.x()).whileTrue(m_driveSubsystem.sysIdDynamic(Direction.kReverse));
+        // m_joystick.start().and(m_joystick.y()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kForward));
+        // m_joystick.start().and(m_joystick.x()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kReverse));
+
+        // m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() -> 
+        //     forwardStraight.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
+        //         .withVelocityY(-m_joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
+        //         .withRotationalRate(-m_joystick.getRightX() * MaxAngularRate) // Drive counterclockwise with negative X (left)
+        // ));
+        m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
+            forwardStraight.withVelocityX(m_cameraSubsystem.calculateRangeFromTag()) // Drive forward with negative Y (forward)
+                .withVelocityY(0) // Drive left with negative X (left)
+                .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag()) // Drive counterclockwise with negative X (left)
         ));
 
-        m_joystick.pov(0).whileTrue(m_driveSubsystem.applyRequest(() ->
-            forwardStraight.withVelocityX(0.5).withVelocityY(0))
-        );
-        m_joystick.pov(180).whileTrue(m_driveSubsystem.applyRequest(() ->
-            forwardStraight.withVelocityX(-0.5).withVelocityY(0))
-        );
-
-        // Run SysId routines when holding back/start and X/Y.
-        // Note that each routine should be run exactly once in a single log.
-        m_joystick.back().and(m_joystick.y()).whileTrue(m_driveSubsystem.sysIdDynamic(Direction.kForward));
-        m_joystick.back().and(m_joystick.x()).whileTrue(m_driveSubsystem.sysIdDynamic(Direction.kReverse));
-        m_joystick.start().and(m_joystick.y()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kForward));
-        m_joystick.start().and(m_joystick.x()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kReverse));
-
         // reset the field-centric heading on left bumper press
-        m_joystick.leftBumper().onTrue(m_driveSubsystem.runOnce(() -> m_driveSubsystem.seedFieldCentric()));
+        m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> m_driveSubsystem.seedFieldCentric()));
 
         m_driveSubsystem.registerTelemetry(logger::telemeterize);
     }
