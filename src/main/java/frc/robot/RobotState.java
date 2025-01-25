@@ -20,6 +20,4 @@ public class RobotState {
             DriverStation.reportError(e.getMessage(), false);
         }
     }
-
-    public static double swerveHeadingOffset = 0;
 }

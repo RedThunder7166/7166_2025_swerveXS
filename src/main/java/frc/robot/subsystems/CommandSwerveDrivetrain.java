@@ -16,6 +16,7 @@ import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
 
 import edu.wpi.first.math.Matrix;
+import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.Odometry3d;
@@ -121,7 +122,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     private SysIdRoutine m_sysIdRoutineToApply = m_sysIdRoutineTranslation;
 
     private final SwerveDriveKinematics m_customKinematics = this.getKinematics();
-    private SwerveDriveOdometry m_customOdometry;
+    private SwerveDrivePoseEstimator m_poseEstimator;
 
     /**
      * Constructs a CTRE SwerveDrivetrain using the specified constants.
@@ -203,24 +204,19 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     }
 
     private void initializeSwerve() {
-        m_customOdometry = new SwerveDriveOdometry(
+        m_poseEstimator = new SwerveDrivePoseEstimator(
             m_customKinematics,
             this.getPigeon2().getRotation2d(),
-            new SwerveModulePosition[] {
-                this.getModule(0).getPosition(true),
-                this.getModule(1).getPosition(true),
-                this.getModule(2).getPosition(true),
-                this.getModule(3).getPosition(true),
-            }, getState().Pose
+            getState().ModulePositions,
+            getState().Pose
         );
 
         try {
             var config = RobotConfig.fromGUISettings();
             AutoBuilder.configure(
                 // () -> getState().Pose,   // Supplier of current robot pose
-                CameraSubsystem.getSingleton()::getLatestVisionPose,
-                // this::resetPose,         // Consumer for seeding pose against auto
-                (Pose2d a) -> {},
+                this::getCustomEstimatedPose,
+                this::resetPose,         // Consumer for seeding pose against auto // TODO: make resetPose affect our custom estimator??
                 () -> getState().Speeds, // Supplier of current robot speeds
                 // Consumer of ChassisSpeeds and feedforwards to drive the robot
                 (speeds, feedforwards) -> setControl(
@@ -295,10 +291,23 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
                 m_hasAppliedOperatorPerspective = true;
             });
         }
+
+        m_poseEstimator.update(getPigeon2().getRotation2d(), getState().ModulePositions);
     }
 
     public void ensureThisFileHasBeenModified() {
         ;
+    }
+
+    public void addCustomVisionMeasurement(
+        Pose2d visionRobotPoseMeters,
+        double timestampSeconds,
+        Matrix<N3, N1> visionMeasurementStdDevs)
+    {
+        m_poseEstimator.addVisionMeasurement(visionRobotPoseMeters, timestampSeconds, visionMeasurementStdDevs);
+    }
+    public Pose2d getCustomEstimatedPose() {
+        return m_poseEstimator.getEstimatedPosition();
     }
 
     private void startSimThread() {

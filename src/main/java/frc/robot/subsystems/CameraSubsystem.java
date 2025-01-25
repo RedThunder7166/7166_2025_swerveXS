@@ -40,10 +40,10 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.LimelightHelpers;
-import frc.robot.RobotState;
 
 public class CameraSubsystem extends SubsystemBase {
     private static CameraSubsystem singleton = null;
@@ -57,8 +57,18 @@ public class CameraSubsystem extends SubsystemBase {
     private static final String limelightName = "limelight";
 
     private static final HashMap<Integer, AprilTag> aprilTagMap = new HashMap<>();
+    private static final HashMap<Integer, PathPlannerPath> aprilTagLineUpMap = new HashMap<>();
     private static Translation2d reefCenterTranslation = new Translation2d();
+
+    static void tryToMapAprilTagAndLineUp(int aprilTagID, String file_path) {
+        try {
+            aprilTagLineUpMap.put(aprilTagID, PathPlannerPath.fromPathFile(file_path));
+        } catch (Exception e) {
+            DriverStation.reportWarning("Failed to find path " + file_path, false);
+        }
+    }
     static {
+        boolean success = false;
         try {
             AprilTagFieldLayout fieldLayout = AprilTagFieldLayout.loadField(AprilTagFields.k2025Reefscape);
             for (var tag : fieldLayout.getTags()) {
@@ -88,8 +98,18 @@ public class CameraSubsystem extends SubsystemBase {
                     (translation17.getY() + translation18.getY() + translation19.getY() + translation20.getY() + translation21.getY() + translation22.getY()) / 6
                 );
             }
+            success = true;
         } catch (Exception e) {
             DriverStation.reportError("Failed to load AprilTagFieldLayout: " + e.getMessage(), false);
+        }
+
+        if (success) {
+            tryToMapAprilTagAndLineUp(6, "REEF_KL_LINEUP");
+            tryToMapAprilTagAndLineUp(7, "REEF_AB_LINEUP");
+            tryToMapAprilTagAndLineUp(8, "REEF_CD_LINEUP");
+            tryToMapAprilTagAndLineUp(9, "REEF_EF_LINEUP");
+            tryToMapAprilTagAndLineUp(10, "REEF_GH_LINEUP");
+            tryToMapAprilTagAndLineUp(11, "REEF_IJ_LINEUP");
         }
     }
 
@@ -157,10 +177,10 @@ public class CameraSubsystem extends SubsystemBase {
         return targetingForwardSpeed;
     }
 
-    private Pose2d latestVisionPose = null;
-    public Pose2d getLatestVisionPose() {
-        return latestVisionPose;
-    }
+    // private Pose2d latestVisionPose = null;
+    // public Pose2d getLatestVisionPose() {
+    //     return latestVisionPose;
+    // }
 
     private final Matrix<N3, N1> stdDevs = VecBuilder.fill(.7,.7,9999999);
     private void updateVisionMegaTag1() {
@@ -176,17 +196,15 @@ public class CameraSubsystem extends SubsystemBase {
         } else if (mt1.tagCount == 0)
             return;
 
-        latestVisionPose = mt1.pose;
+        Pose2d pose = mt1.pose;
 
-        m_driveSubsystem.setVisionMeasurementStdDevs(stdDevs);
-        m_driveSubsystem.addVisionMeasurement(
-            mt1.pose,
-            mt1.timestampSeconds
+        m_driveSubsystem.addCustomVisionMeasurement(
+            pose, mt1.timestampSeconds,
+            stdDevs
         );
     }
     private boolean updateVisionMegaTag2() {
-        var state = m_driveSubsystem.getState();
-        double yaw_degrees = state.Pose.getRotation().minus(new Rotation2d(Angle.ofBaseUnits(RobotState.swerveHeadingOffset, Degrees))).getDegrees();
+        double yaw_degrees = m_driveSubsystem.getCustomEstimatedPose().getRotation().getDegrees();
         SmartDashboard.putNumber("YAW_DEGREES", yaw_degrees);
         LimelightHelpers.SetRobotOrientation(limelightName, yaw_degrees, 0, 0, 0, 0, 0);
         LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(limelightName);
@@ -199,9 +217,8 @@ public class CameraSubsystem extends SubsystemBase {
             return false;
 
         Pose2d pose = mt2.pose;
-        latestVisionPose = pose;
 
-        m_driveSubsystem.addVisionMeasurement(
+        m_driveSubsystem.addCustomVisionMeasurement(
             pose, mt2.timestampSeconds,
             stdDevs
         );
@@ -217,45 +234,30 @@ public class CameraSubsystem extends SubsystemBase {
             SmartDashboard.putBoolean("MegaTag2Success", updateVisionMegaTag2());
         else
             updateVisionMegaTag1();
-
-        var state = m_driveSubsystem.getState();
-        swervePosePublisher.set(state.Pose);
-
-        SmartDashboard.putNumber("StateX", state.Pose.getX());
-        SmartDashboard.putNumber("StateY", state.Pose.getY());
-        Pose2d visionPose = latestVisionPose;
-        if (visionPose != null) {
-            SmartDashboard.putNumber("VisionX", visionPose.getX());
-            SmartDashboard.putNumber("VisionY", visionPose.getY());
-        }
     }
 
-    private final PIDController targetRotatePIDController = new PIDController(2, 0, 0);
+    private final PIDController targetRotatePIDController = new PIDController(3, 0, 0);
     public double calculateRotateFromTag(int tagID) {
-        // var state = m_driveSubsystem.getState();
-        // Pose2d robotPose = state.Pose;
-        Pose2d robotPose = latestVisionPose;
-        if (robotPose == null)
-            return 0;
+        Pose2d robotPose = m_driveSubsystem.getCustomEstimatedPose();
 
         AprilTag targetTag = aprilTagMap.get(tagID);
         Pose2d targetTagPose = targetTag.pose.toPose2d();
 
-        // var directionVector = targetTagPose.minus(robotPose);
-        double desiredAngle = Math.atan2(targetTagPose.getY() - robotPose.getY(), targetTagPose.getX() - robotPose.getX());
-        // double desiredAngle = directionVector.getRotation().getRadians();
+        // double desiredAngle = Math.atan2(targetTagPose.getY() - robotPose.getY(), targetTagPose.getX() - robotPose.getX());
+        // SmartDashboard.putNumber("ROTATEFROMTAG_DESIREDANGLE", desiredAngle);
 
-        // double result = targetRotatePIDController.calculate(MathUtil.angleModulus(state.RawHeading.getRadians()), desiredAngle);
-        double result = targetRotatePIDController.calculate(desiredAngle, 0);
-        // result = -result;
+        double desiredAngle = targetTagPose.getRotation().minus(robotPose.getRotation()).getRadians();
+        SmartDashboard.putNumber("ROTATEFROMTAG_DESIREDANGLE", desiredAngle);
+
+        double result = targetRotatePIDController.calculate(robotPose.getRotation().getRadians(), desiredAngle);
         SmartDashboard.putNumber("ROTATEFROMTAG_RESULT", result);
         return result;
     }
 
-    public static final class CommandWrapper extends Command {
+    public static final class DynamicCommand extends Command {
         private final Supplier<Command> m_commandSupplier;
         private Command m_command;
-        public CommandWrapper(Supplier<Command> commandSupplier) {
+        public DynamicCommand(Supplier<Command> commandSupplier) {
             m_commandSupplier = commandSupplier;
         }
 
@@ -275,41 +277,44 @@ public class CameraSubsystem extends SubsystemBase {
         }
     }
 
-    public Optional<Command> getPathCommandFromTag(int tagID) {
-        Pose2d robotPose = latestVisionPose;
+    public Command getPathCommandFromTag(int tagID) {
+        // Pose2d robotPose = m_driveSubsystem.getCustomEstimatedPose();
 
         // 29 inches
-        double offset = Units.inchesToMeters(29);
+        double offset = Units.inchesToMeters(22);
 
         // this code gets the target april tag position and applies a certain offset away from the reef
         final AprilTag targetTag = aprilTagMap.get(tagID);
         final Pose2d targetTagPose = targetTag.pose.toPose2d();
         final Translation2d targetTagTranslation = targetTagPose.getTranslation();
         Translation2d directionVector = targetTagTranslation.minus(reefCenterTranslation); // get vector from center of reef to tag
-        double directionVectorMagnitude = Math.sqrt(Math.pow(directionVector.getX(), 2) + Math.pow(directionVector.getY(), 2)); // get magnitude
+        final double directionVectorMagnitude = Math.sqrt(Math.pow(directionVector.getX(), 2) + Math.pow(directionVector.getY(), 2)); // get magnitude
         directionVector = new Translation2d(directionVector.getX() / directionVectorMagnitude, directionVector.getY() / directionVectorMagnitude); // normalize
 
         Pose2d targetPose = new Pose2d(
             new Translation2d(targetTagTranslation.getX() + directionVector.getX() * offset, targetTagTranslation.getY() + directionVector.getY() * offset),
-            robotPose.getRotation()
+            targetTagPose.getRotation().plus(Rotation2d.k180deg)
         );
 
-        SmartDashboard.putNumber("TagX", targetTagPose.getX());
-        SmartDashboard.putNumber("TagY", targetTagPose.getY());
+        SmartDashboard.putNumber("PATHFINDING_POSEX", targetPose.getX());
+        SmartDashboard.putNumber("PATHFINDING_POSEY", targetPose.getY());
 
-        // Create the constraints to use while pathfinding
         PathConstraints constraints = new PathConstraints(
-                // 3.0, 4.0,
-                1, 2,
+                3.0, 4.0,
                 Units.degreesToRadians(540), Units.degreesToRadians(720));
 
-        // Since AutoBuilder is configured, we can use it to build pathfinding commands
         Command result = AutoBuilder.pathfindToPose(targetPose,
                 constraints,
-                0.0 // Goal end velocity in meters/sec
+                0
         );
 
+        var lineup = aprilTagLineUpMap.getOrDefault(tagID, null);
+        if (lineup != null) {
+            System.out.println("LINING UP...");
+            result = result.andThen(AutoBuilder.followPath(lineup));
+        }
+
         result.addRequirements(m_driveSubsystem);
-        return Optional.of(result);
+        return result;
     }
 }

@@ -24,6 +24,7 @@ import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 
@@ -33,7 +34,7 @@ import frc.robot.subsystems.CommandSwerveDrivetrain;
 
 public class RobotContainer {
     private double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
-    private double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond); // 3/4 of a rotation per second max angular velocity
+    private double MaxAngularRate = RotationsPerSecond.of(1.5).in(RadiansPerSecond);
 
     /* Setting up bindings for necessary control of the swerve drive platform */
     private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
@@ -83,6 +84,7 @@ public class RobotContainer {
         configureBindings();
     }
 
+    int target_tagid = 7;
     private void configureBindings() {
         // Note that X is defined as forward according to WPILib convention,
         // and Y is defined as to the left according to WPILib convention.
@@ -126,8 +128,23 @@ public class RobotContainer {
         //         .withVelocityY(0) // Drive left with negative X (left)
         //         .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag()) // Drive counterclockwise with negative X (left)
         // ));
+
+        m_joystick.povUp().onTrue(new InstantCommand(() -> {
+            target_tagid++;
+            if (target_tagid > 11)
+                target_tagid = 6;
+            SmartDashboard.putNumber("TARGET_TAGID", target_tagid);
+        }));
+        m_joystick.povDown().onTrue(new InstantCommand(() -> {
+            target_tagid--;
+            if (target_tagid < 6)
+                target_tagid = 11;
+            SmartDashboard.putNumber("TARGET_TAGID", target_tagid);
+        }));
         // path plan to tag
-        m_joystick.rightBumper().whileTrue(new CameraSubsystem.CommandWrapper(() -> m_cameraSubsystem.getPathCommandFromTag(6).orElse(Commands.none())));
+        m_joystick.rightBumper().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
+            return m_cameraSubsystem.getPathCommandFromTag(target_tagid);
+        }));
 
         m_joystick.leftBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
             drive.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
@@ -137,10 +154,6 @@ public class RobotContainer {
 
         // reset the field-centric heading
         m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> {
-            Rotation2d rotation = m_driveSubsystem.getState().Pose.getRotation();
-            // SmartDashboard.putNumber("PLEASEHELP", m_driveSubsystem.getOperatorForwardDirection().minus(rotation).getDegrees());
-            // RobotState.swerveHeadingOffset = m_driveSubsystem.getOperatorForwardDirection().minus(rotation).getDegrees();
-            RobotState.swerveHeadingOffset = m_initialSwerveRotation.minus(rotation).getDegrees();
             m_driveSubsystem.seedFieldCentric();
         }));
 
