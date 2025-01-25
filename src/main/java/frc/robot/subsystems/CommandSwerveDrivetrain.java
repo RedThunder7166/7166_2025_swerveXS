@@ -16,7 +16,12 @@ import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
 
 import edu.wpi.first.math.Matrix;
+import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.Odometry3d;
+import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
+import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -115,6 +120,9 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     /* The SysId routine to test */
     private SysIdRoutine m_sysIdRoutineToApply = m_sysIdRoutineTranslation;
 
+    private final SwerveDriveKinematics m_customKinematics = this.getKinematics();
+    private SwerveDriveOdometry m_customOdometry;
+
     /**
      * Constructs a CTRE SwerveDrivetrain using the specified constants.
      * <p>
@@ -133,7 +141,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         if (Utils.isSimulation()) {
             startSimThread();
         }
-        configureAutoBuilder();
+        initializeSwerve();
     }
 
     /**
@@ -158,7 +166,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         if (Utils.isSimulation()) {
             startSimThread();
         }
-        configureAutoBuilder();
+        initializeSwerve();
     }
 
     /**
@@ -191,15 +199,28 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         if (Utils.isSimulation()) {
             startSimThread();
         }
-        configureAutoBuilder();
+        initializeSwerve();
     }
 
-    private void configureAutoBuilder() {
+    private void initializeSwerve() {
+        m_customOdometry = new SwerveDriveOdometry(
+            m_customKinematics,
+            this.getPigeon2().getRotation2d(),
+            new SwerveModulePosition[] {
+                this.getModule(0).getPosition(true),
+                this.getModule(1).getPosition(true),
+                this.getModule(2).getPosition(true),
+                this.getModule(3).getPosition(true),
+            }, getState().Pose
+        );
+
         try {
             var config = RobotConfig.fromGUISettings();
             AutoBuilder.configure(
-                () -> getState().Pose,   // Supplier of current robot pose
-                this::resetPose,         // Consumer for seeding pose against auto
+                // () -> getState().Pose,   // Supplier of current robot pose
+                CameraSubsystem.getSingleton()::getLatestVisionPose,
+                // this::resetPose,         // Consumer for seeding pose against auto
+                (Pose2d a) -> {},
                 () -> getState().Speeds, // Supplier of current robot speeds
                 // Consumer of ChassisSpeeds and feedforwards to drive the robot
                 (speeds, feedforwards) -> setControl(
@@ -274,6 +295,10 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
                 m_hasAppliedOperatorPerspective = true;
             });
         }
+    }
+
+    public void ensureThisFileHasBeenModified() {
+        ;
     }
 
     private void startSimThread() {

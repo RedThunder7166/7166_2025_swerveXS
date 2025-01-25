@@ -12,10 +12,18 @@ import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.net.PortForwarder;
+import edu.wpi.first.networktables.DoublePublisher;
+import edu.wpi.first.networktables.DoubleSubscriber;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.units.measure.Angle;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 
@@ -40,13 +48,14 @@ public class RobotContainer {
 
     private final CommandXboxController m_joystick = new CommandXboxController(0);
 
-    public final CommandSwerveDrivetrain m_driveSubsystem = TunerConstants.createDrivetrain();
-    public final CameraSubsystem m_cameraSubsystem = CameraSubsystem.getSingleton();
+    private final CommandSwerveDrivetrain m_driveSubsystem = TunerConstants.createDrivetrain();
+    private final CameraSubsystem m_cameraSubsystem = CameraSubsystem.getSingleton();
     {
         m_cameraSubsystem.setDriveSubsystem(m_driveSubsystem, MaxSpeed, MaxAngularRate);
     }
 
-    /* Path follower */
+    private final Rotation2d m_initialSwerveRotation;
+
     private final SendableChooser<Command> m_autoChooser;
 
     public RobotContainer() {
@@ -60,6 +69,16 @@ public class RobotContainer {
         // for (int port = 5800; port <= 5809; port++) {
         //     PortForwarder.add(port+10, "limelight-left.local", port);
         // }
+
+        // make sure forward faces red alliance wall
+        if (Constants.alliance == Alliance.Red)
+            m_initialSwerveRotation = Rotation2d.kZero;
+        else
+            m_initialSwerveRotation = Rotation2d.k180deg;
+
+        m_driveSubsystem.resetRotation(m_initialSwerveRotation);
+
+        m_driveSubsystem.ensureThisFileHasBeenModified();
 
         configureBindings();
     }
@@ -95,19 +114,35 @@ public class RobotContainer {
         // m_joystick.start().and(m_joystick.y()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kForward));
         // m_joystick.start().and(m_joystick.x()).whileTrue(m_driveSubsystem.sysIdQuasistatic(Direction.kReverse));
 
+        // robot-centric
         // m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() -> 
         //     forwardStraight.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
         //         .withVelocityY(-m_joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
         //         .withRotationalRate(-m_joystick.getRightX() * MaxAngularRate) // Drive counterclockwise with negative X (left)
         // ));
-        m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
-            forwardStraight.withVelocityX(m_cameraSubsystem.calculateRangeFromTag()) // Drive forward with negative Y (forward)
-                .withVelocityY(0) // Drive left with negative X (left)
-                .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag()) // Drive counterclockwise with negative X (left)
+        // drive and rotate toward tag
+        // m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
+        //     forwardStraight.withVelocityX(m_cameraSubsystem.calculateRangeFromTag()) // Drive forward with negative Y (forward)
+        //         .withVelocityY(0) // Drive left with negative X (left)
+        //         .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag()) // Drive counterclockwise with negative X (left)
+        // ));
+        // path plan to tag
+        m_joystick.rightBumper().whileTrue(new CameraSubsystem.CommandWrapper(() -> m_cameraSubsystem.getPathCommandFromTag(6).orElse(Commands.none())));
+
+        m_joystick.leftBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
+            drive.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
+                .withVelocityY(-m_joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
+                .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag(7)) // Drive counterclockwise with negative X (left)
         ));
 
-        // reset the field-centric heading on left bumper press
-        m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> m_driveSubsystem.seedFieldCentric()));
+        // reset the field-centric heading
+        m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> {
+            Rotation2d rotation = m_driveSubsystem.getState().Pose.getRotation();
+            // SmartDashboard.putNumber("PLEASEHELP", m_driveSubsystem.getOperatorForwardDirection().minus(rotation).getDegrees());
+            // RobotState.swerveHeadingOffset = m_driveSubsystem.getOperatorForwardDirection().minus(rotation).getDegrees();
+            RobotState.swerveHeadingOffset = m_initialSwerveRotation.minus(rotation).getDegrees();
+            m_driveSubsystem.seedFieldCentric();
+        }));
 
         m_driveSubsystem.registerTelemetry(logger::telemeterize);
     }
