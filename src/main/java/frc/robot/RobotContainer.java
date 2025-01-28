@@ -12,21 +12,13 @@ import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 
 import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.net.PortForwarder;
-import edu.wpi.first.networktables.DoublePublisher;
-import edu.wpi.first.networktables.DoubleSubscriber;
-import edu.wpi.first.networktables.NetworkTable;
-import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.InstantCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
-import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CameraSubsystem;
@@ -41,9 +33,9 @@ public class RobotContainer {
             .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1) // Add a 10% deadband
             .withDriveRequestType(DriveRequestType.OpenLoopVoltage); // Use open-loop control for drive motors
     private final SwerveRequest.SwerveDriveBrake brake = new SwerveRequest.SwerveDriveBrake();
-    private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
-    private final SwerveRequest.RobotCentric forwardStraight = new SwerveRequest.RobotCentric()
-            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+    // private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
+    // private final SwerveRequest.RobotCentric forwardStraight = new SwerveRequest.RobotCentric()
+    //         .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
     private final Telemetry logger = new Telemetry(MaxSpeed);
 
@@ -67,9 +59,9 @@ public class RobotContainer {
             PortForwarder.add(port, "limelight.local", port);
         }
         // for second limelight
-        // for (int port = 5800; port <= 5809; port++) {
-        //     PortForwarder.add(port+10, "limelight-left.local", port);
-        // }
+        for (int port = 5800; port <= 5809; port++) {
+            PortForwarder.add(port + 10, "limelight-mini.local", port);
+        }
 
         // make sure forward faces red alliance wall
         if (Constants.alliance == Alliance.Red)
@@ -77,7 +69,7 @@ public class RobotContainer {
         else
             m_initialSwerveRotation = Rotation2d.k180deg;
 
-        m_driveSubsystem.resetRotation(m_initialSwerveRotation);
+        m_driveSubsystem.resetCustomRotation(m_initialSwerveRotation);
 
         m_driveSubsystem.ensureThisFileHasBeenModified();
 
@@ -129,6 +121,7 @@ public class RobotContainer {
         //         .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag()) // Drive counterclockwise with negative X (left)
         // ));
 
+        SmartDashboard.putNumber("TARGET_TAGID", target_tagid);
         m_joystick.povUp().onTrue(new InstantCommand(() -> {
             target_tagid++;
             if (target_tagid > 11)
@@ -141,6 +134,7 @@ public class RobotContainer {
                 target_tagid = 11;
             SmartDashboard.putNumber("TARGET_TAGID", target_tagid);
         }));
+
         // path plan to tag
         m_joystick.rightBumper().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
             return m_cameraSubsystem.getPathCommandFromTag(target_tagid);
@@ -155,6 +149,11 @@ public class RobotContainer {
         // reset the field-centric heading
         m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> {
             m_driveSubsystem.seedFieldCentric();
+        }));
+
+        // reset rotation to set rotation based on alliance
+        m_joystick.back().onTrue(m_driveSubsystem.runOnce(() -> {
+            m_driveSubsystem.resetCustomRotation(m_initialSwerveRotation);
         }));
 
         m_driveSubsystem.registerTelemetry(logger::telemeterize);

@@ -4,25 +4,17 @@
 
 package frc.robot.subsystems;
 
-import static edu.wpi.first.units.Units.Degrees;
-import static edu.wpi.first.units.Units.Radians;
-
 import java.util.HashMap;
-import java.util.List;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 import com.ctre.phoenix6.hardware.Pigeon2;
 import com.pathplanner.lib.auto.AutoBuilder;
-import com.pathplanner.lib.path.GoalEndState;
 import com.pathplanner.lib.path.PathConstraints;
 import com.pathplanner.lib.path.PathPlannerPath;
-import com.pathplanner.lib.path.Waypoint;
 
 import edu.wpi.first.apriltag.AprilTag;
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
-import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.controller.PIDController;
@@ -34,13 +26,10 @@ import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StructPublisher;
-import edu.wpi.first.units.AngleUnit;
-import edu.wpi.first.units.measure.Angle;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.LimelightHelpers;
@@ -54,7 +43,7 @@ public class CameraSubsystem extends SubsystemBase {
         return singleton;
     }
 
-    private static final String limelightName = "limelight";
+    private static final String limelightName = "limelight-fourone";
 
     private static final HashMap<Integer, AprilTag> aprilTagMap = new HashMap<>();
     private static final HashMap<Integer, PathPlannerPath> aprilTagLineUpMap = new HashMap<>();
@@ -113,6 +102,16 @@ public class CameraSubsystem extends SubsystemBase {
         }
     }
 
+    private static final double speedMultiplier = 2.5;
+    private static final double rotatePID_P = 0.027;
+    private static final double rangePID_P = 0.065;
+    private static final double targetTagRange = -12.5;
+
+    private static final boolean useMegaTag2 = true;
+    private static final boolean tunePIDWithSmartDashboard = false;
+
+    private Pose2d m_cachedPoseEstimate;
+
     private CommandSwerveDrivetrain m_driveSubsystem;
     private Pigeon2 m_pigeon2;
     private double m_driveMaxSpeed;
@@ -122,15 +121,9 @@ public class CameraSubsystem extends SubsystemBase {
         m_pigeon2 = m_driveSubsystem.getPigeon2();
         m_driveMaxSpeed = driveMaxSpeed;
         m_driveMaxAngularRate = driveMaxAngularRate;
+
+        m_cachedPoseEstimate = m_driveSubsystem.getCustomEstimatedPose();
     }
-
-    private static final double speedMultiplier = 2.5;
-    private static final double rotatePID_P = 0.027;
-    private static final double rangePID_P = 0.065;
-    private static final double targetTagRange = -12.5;
-
-    private boolean useMegaTag2 = true;
-    private boolean tunePIDWithSmartDashboard = false;
 
     public CameraSubsystem() {
         if (tunePIDWithSmartDashboard) {
@@ -204,8 +197,7 @@ public class CameraSubsystem extends SubsystemBase {
         );
     }
     private boolean updateVisionMegaTag2() {
-        double yaw_degrees = m_driveSubsystem.getCustomEstimatedPose().getRotation().getDegrees();
-        SmartDashboard.putNumber("YAW_DEGREES", yaw_degrees);
+        double yaw_degrees = m_cachedPoseEstimate.getRotation().getDegrees();
         LimelightHelpers.SetRobotOrientation(limelightName, yaw_degrees, 0, 0, 0, 0, 0);
         LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(limelightName);
         if (mt2 == null)
@@ -230,15 +222,17 @@ public class CameraSubsystem extends SubsystemBase {
         .getStructTopic("MyPose", Pose2d.struct).publish();
     @Override
     public void periodic() {
+        m_cachedPoseEstimate = m_driveSubsystem.getCustomEstimatedPose();
         if (useMegaTag2)
             SmartDashboard.putBoolean("MegaTag2Success", updateVisionMegaTag2());
         else
             updateVisionMegaTag1();
+        swervePosePublisher.set(m_cachedPoseEstimate);
     }
 
     private final PIDController targetRotatePIDController = new PIDController(3, 0, 0);
     public double calculateRotateFromTag(int tagID) {
-        Pose2d robotPose = m_driveSubsystem.getCustomEstimatedPose();
+        Pose2d robotPose = m_cachedPoseEstimate;
 
         AprilTag targetTag = aprilTagMap.get(tagID);
         Pose2d targetTagPose = targetTag.pose.toPose2d();
@@ -278,10 +272,10 @@ public class CameraSubsystem extends SubsystemBase {
     }
 
     public Command getPathCommandFromTag(int tagID) {
-        // Pose2d robotPose = m_driveSubsystem.getCustomEstimatedPose();
+        // Pose2d robotPose = m_cachedPoseEstimate;
 
         // 29 inches
-        double offset = Units.inchesToMeters(22);
+        double offset = Units.inchesToMeters(25);
 
         // this code gets the target april tag position and applies a certain offset away from the reef
         final AprilTag targetTag = aprilTagMap.get(tagID);
@@ -310,7 +304,7 @@ public class CameraSubsystem extends SubsystemBase {
 
         var lineup = aprilTagLineUpMap.getOrDefault(tagID, null);
         if (lineup != null) {
-            System.out.println("LINING UP...");
+            SmartDashboard.putString("LINING_UP", "" + System.currentTimeMillis());
             result = result.andThen(AutoBuilder.followPath(lineup));
         }
 
