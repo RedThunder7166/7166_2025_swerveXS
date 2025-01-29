@@ -24,6 +24,7 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StructPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -43,49 +44,36 @@ public class CameraSubsystem extends SubsystemBase {
         return singleton;
     }
 
-    private static final String limelightName = "limelight-fourone";
+    private static final String limelightOneName = "limelight-fourone";
+    private static final String limelightTwoName = "limelight-threeg";
+    private static final boolean useLimelightTwo = false;
 
     private static final HashMap<Integer, AprilTag> aprilTagMap = new HashMap<>();
     private static final HashMap<Integer, PathPlannerPath> aprilTagLineUpMap = new HashMap<>();
     private static Translation2d reefCenterTranslation = new Translation2d();
 
-    static void tryToMapAprilTagAndLineUp(int aprilTagID, String file_path) {
+    static boolean tryToMapAprilTagAndLineUp(int aprilTagID, String file_path) {
         try {
             aprilTagLineUpMap.put(aprilTagID, PathPlannerPath.fromPathFile(file_path));
+            return true;
         } catch (Exception e) {
             DriverStation.reportWarning("Failed to find path " + file_path, false);
         }
+        return false;
     }
     static {
+        for (int port = 5800; port <= 5809; port++)
+            PortForwarder.add(port, limelightOneName + ".local", port);
+
+        if (useLimelightTwo)
+            for (int port = 5800; port <= 5809; port++)
+                PortForwarder.add(port + 10, limelightTwoName + ".local", port);
+
         boolean success = false;
         try {
             AprilTagFieldLayout fieldLayout = AprilTagFieldLayout.loadField(AprilTagFields.k2025Reefscape);
             for (var tag : fieldLayout.getTags()) {
                 aprilTagMap.put(tag.ID, tag);
-            }
-
-            if (Constants.alliance == Alliance.Red) {
-                var translation6 = aprilTagMap.get(6).pose.getTranslation();
-                var translation7 = aprilTagMap.get(7).pose.getTranslation();
-                var translation8 = aprilTagMap.get(8).pose.getTranslation();
-                var translation9 = aprilTagMap.get(9).pose.getTranslation();
-                var translation10 = aprilTagMap.get(10).pose.getTranslation();
-                var translation11 = aprilTagMap.get(11).pose.getTranslation();
-                reefCenterTranslation = new Translation2d(
-                    (translation6.getX() + translation7.getX() + translation8.getX() + translation9.getX() + translation10.getX() + translation11.getX()) / 6,
-                    (translation6.getY() + translation7.getY() + translation8.getY() + translation9.getY() + translation10.getY() + translation11.getY()) / 6
-                );
-            } else if (Constants.alliance == Alliance.Blue) {
-                var translation17 = aprilTagMap.get(17).pose.getTranslation();
-                var translation18 = aprilTagMap.get(18).pose.getTranslation();
-                var translation19 = aprilTagMap.get(19).pose.getTranslation();
-                var translation20 = aprilTagMap.get(20).pose.getTranslation();
-                var translation21 = aprilTagMap.get(121).pose.getTranslation();
-                var translation22 = aprilTagMap.get(122).pose.getTranslation();
-                reefCenterTranslation = new Translation2d(
-                    (translation17.getX() + translation18.getX() + translation19.getX() + translation20.getX() + translation21.getX() + translation22.getX()) / 6,
-                    (translation17.getY() + translation18.getY() + translation19.getY() + translation20.getY() + translation21.getY() + translation22.getY()) / 6
-                );
             }
             success = true;
         } catch (Exception e) {
@@ -93,12 +81,23 @@ public class CameraSubsystem extends SubsystemBase {
         }
 
         if (success) {
-            tryToMapAprilTagAndLineUp(6, "REEF_KL_LINEUP");
-            tryToMapAprilTagAndLineUp(7, "REEF_AB_LINEUP");
-            tryToMapAprilTagAndLineUp(8, "REEF_CD_LINEUP");
-            tryToMapAprilTagAndLineUp(9, "REEF_EF_LINEUP");
-            tryToMapAprilTagAndLineUp(10, "REEF_GH_LINEUP");
-            tryToMapAprilTagAndLineUp(11, "REEF_IJ_LINEUP");
+            var translationAB = aprilTagMap.get(Constants.REEF_AB_TAGID).pose.getTranslation();
+            var translationCD = aprilTagMap.get(Constants.REEF_CD_TAGID).pose.getTranslation();
+            var translationEF = aprilTagMap.get(Constants.REEF_EF_TAGID).pose.getTranslation();
+            var translationGH = aprilTagMap.get(Constants.REEF_GH_TAGID).pose.getTranslation();
+            var translationIJ = aprilTagMap.get(Constants.REEF_IJ_TAGID).pose.getTranslation();
+            var translationKL = aprilTagMap.get(Constants.REEF_KL_TAGID).pose.getTranslation();
+            reefCenterTranslation = new Translation2d(
+                (translationAB.getX() + translationCD.getX() + translationEF.getX() + translationGH.getX() + translationIJ.getX() + translationKL.getX()) / 6,
+                (translationAB.getY() + translationCD.getY() + translationEF.getY() + translationGH.getY() + translationIJ.getY() + translationKL.getY()) / 6
+            );
+
+            success = success && tryToMapAprilTagAndLineUp(Constants.REEF_AB_TAGID, "REEF_AB_LINEUP")
+                && tryToMapAprilTagAndLineUp(Constants.REEF_CD_TAGID, "REEF_CD_LINEUP")
+                && tryToMapAprilTagAndLineUp(Constants.REEF_EF_TAGID, "REEF_EF_LINEUP")
+                && tryToMapAprilTagAndLineUp(Constants.REEF_GH_TAGID, "REEF_GH_LINEUP")
+                && tryToMapAprilTagAndLineUp(Constants.REEF_IJ_TAGID, "REEF_IJ_LINEUP")
+                && tryToMapAprilTagAndLineUp(Constants.REEF_KL_TAGID, "REEF_KL_LINEUP");
         }
     }
 
@@ -143,7 +142,7 @@ public class CameraSubsystem extends SubsystemBase {
                 kP = -0.5;
         }
 
-        double targetingAngularVelocity = LimelightHelpers.getTX(limelightName) * kP;
+        double targetingAngularVelocity = LimelightHelpers.getTX(limelightOneName) * kP;
         targetingAngularVelocity *= m_driveMaxAngularRate;
         targetingAngularVelocity *= -1.0;
         return targetingAngularVelocity;
@@ -162,7 +161,7 @@ public class CameraSubsystem extends SubsystemBase {
         }
 
         limelightRangeController.setP(kP);
-        double targetingForwardSpeed = limelightRangeController.calculate(LimelightHelpers.getTY(limelightName), targetTagRange);
+        double targetingForwardSpeed = limelightRangeController.calculate(LimelightHelpers.getTY(limelightOneName), targetTagRange);
         targetingForwardSpeed *= m_driveMaxSpeed * speedMultiplier;
         // targetingForwardSpeed *= -1.0;
         if (targetingForwardSpeed < 0)
@@ -170,13 +169,8 @@ public class CameraSubsystem extends SubsystemBase {
         return targetingForwardSpeed;
     }
 
-    // private Pose2d latestVisionPose = null;
-    // public Pose2d getLatestVisionPose() {
-    //     return latestVisionPose;
-    // }
-
     private final Matrix<N3, N1> stdDevs = VecBuilder.fill(.7,.7,9999999);
-    private void updateVisionMegaTag1() {
+    private void updateVisionMegaTag1(String limelightName) {
         LimelightHelpers.PoseEstimate mt1 = LimelightHelpers.getBotPoseEstimate_wpiBlue(limelightName);
         if (mt1 == null)
             return;
@@ -196,7 +190,7 @@ public class CameraSubsystem extends SubsystemBase {
             stdDevs
         );
     }
-    private boolean updateVisionMegaTag2() {
+    private boolean updateVisionMegaTag2(String limelightName) {
         double yaw_degrees = m_cachedPoseEstimate.getRotation().getDegrees();
         LimelightHelpers.SetRobotOrientation(limelightName, yaw_degrees, 0, 0, 0, 0, 0);
         LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(limelightName);
@@ -223,10 +217,14 @@ public class CameraSubsystem extends SubsystemBase {
     @Override
     public void periodic() {
         m_cachedPoseEstimate = m_driveSubsystem.getCustomEstimatedPose();
-        if (useMegaTag2)
-            SmartDashboard.putBoolean("MegaTag2Success", updateVisionMegaTag2());
-        else
-            updateVisionMegaTag1();
+        if (useMegaTag2) {
+            SmartDashboard.putBoolean("MegaTag2SuccessOne", updateVisionMegaTag2(limelightOneName));
+            if (useLimelightTwo) SmartDashboard.putBoolean("MegaTag2SuccessTwo", updateVisionMegaTag2(limelightTwoName));
+        } else {
+            updateVisionMegaTag1(limelightOneName);
+            if (useLimelightTwo) updateVisionMegaTag1(limelightTwoName);
+        }
+
         swervePosePublisher.set(m_cachedPoseEstimate);
     }
 
@@ -271,11 +269,11 @@ public class CameraSubsystem extends SubsystemBase {
         }
     }
 
-    public Command getPathCommandFromTag(int tagID) {
+    public Command getPathCommandFromReefTag(int tagID) {
         // Pose2d robotPose = m_cachedPoseEstimate;
 
         // 29 inches
-        double offset = Units.inchesToMeters(25);
+        final double offset = Units.inchesToMeters(25);
 
         // this code gets the target april tag position and applies a certain offset away from the reef
         final AprilTag targetTag = aprilTagMap.get(tagID);
@@ -302,11 +300,64 @@ public class CameraSubsystem extends SubsystemBase {
                 0
         );
 
-        var lineup = aprilTagLineUpMap.getOrDefault(tagID, null);
-        if (lineup != null) {
-            SmartDashboard.putString("LINING_UP", "" + System.currentTimeMillis());
-            result = result.andThen(AutoBuilder.followPath(lineup));
+        // var lineup = aprilTagLineUpMap.getOrDefault(tagID, null);
+        // if (lineup != null) {
+        //     SmartDashboard.putString("LINING_UP", "" + System.currentTimeMillis());
+        //     result = result.andThen(AutoBuilder.followPath(lineup));
+        // }
+
+        result.addRequirements(m_driveSubsystem);
+        return result;
+    }
+
+    public static enum CoralStationID {
+        Left(Constants.CORAL_STATION_LEFT_TAGID, Constants.CORAL_STATION_LEFT_OFFSET),
+        Right(Constants.CORAL_STATION_RIGHT_TAGID, Constants.CORAL_STATION_RIGHT_OFFSET);
+
+        private final int m_tagID;
+        private final Translation2d m_offset;
+
+        CoralStationID(int tagID, Translation2d offset) {
+            m_tagID = tagID;
+            m_offset = offset;
         }
+        public int getTagID() {
+            return m_tagID;
+        }
+        public Translation2d getOffset() {
+            return m_offset;
+        }
+    }
+    public Command getPathCommandFromCoralStationTag(CoralStationID coralStationID) {
+        // this code gets the target april tag position and applies a certain offset away from the coral station
+        final AprilTag targetTag = aprilTagMap.get(coralStationID.getTagID());
+        final Pose2d targetTagPose = targetTag.pose.toPose2d();
+        final Translation2d targetTagTranslation = targetTagPose.getTranslation();
+
+        final Translation2d offset = coralStationID.getOffset();
+
+        Pose2d targetPose = new Pose2d(
+            new Translation2d(targetTagTranslation.getX() + offset.getX(), targetTagTranslation.getY() + offset.getY()),
+            targetTagPose.getRotation()
+        );
+
+        SmartDashboard.putNumber("PATHFINDING_POSEX", targetPose.getX());
+        SmartDashboard.putNumber("PATHFINDING_POSEY", targetPose.getY());
+
+        PathConstraints constraints = new PathConstraints(
+                3.0, 4.0,
+                Units.degreesToRadians(540), Units.degreesToRadians(720));
+
+        Command result = AutoBuilder.pathfindToPose(targetPose,
+                constraints,
+                0
+        );
+
+        // var lineup = aprilTagLineUpMap.getOrDefault(tagID, null);
+        // if (lineup != null) {
+        //     SmartDashboard.putString("LINING_UP", "" + System.currentTimeMillis());
+        //     result = result.andThen(AutoBuilder.followPath(lineup));
+        // }
 
         result.addRequirements(m_driveSubsystem);
         return result;

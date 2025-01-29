@@ -23,6 +23,7 @@ import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CameraSubsystem;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
+import frc.robot.subsystems.CameraSubsystem.CoralStationID;
 
 public class RobotContainer {
     private double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
@@ -54,14 +55,6 @@ public class RobotContainer {
     public RobotContainer() {
         m_autoChooser = AutoBuilder.buildAutoChooser("driveStraight");
         SmartDashboard.putData("AutoChooser", m_autoChooser);
-
-        for (int port = 5800; port <= 5809; port++) {
-            PortForwarder.add(port, "limelight.local", port);
-        }
-        // for second limelight
-        for (int port = 5800; port <= 5809; port++) {
-            PortForwarder.add(port + 10, "limelight-mini.local", port);
-        }
 
         // make sure forward faces red alliance wall
         if (Constants.alliance == Alliance.Red)
@@ -137,14 +130,23 @@ public class RobotContainer {
 
         // path plan to tag
         m_joystick.rightBumper().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
-            return m_cameraSubsystem.getPathCommandFromTag(target_tagid);
+            return m_cameraSubsystem.getPathCommandFromReefTag(target_tagid);
         }));
 
-        m_joystick.leftBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
-            drive.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
-                .withVelocityY(-m_joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
-                .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag(7)) // Drive counterclockwise with negative X (left)
-        ));
+        // path plan to left coral station
+        m_joystick.povLeft().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
+            return m_cameraSubsystem.getPathCommandFromCoralStationTag(CoralStationID.Left);
+        }));
+        // path plan to left coral station
+        m_joystick.povRight().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
+            return m_cameraSubsystem.getPathCommandFromCoralStationTag(CoralStationID.Right);
+        }));
+
+        // m_joystick.leftBumper().whileTrue(m_driveSubsystem.applyRequest(() ->
+        //     drive.withVelocityX(-m_joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
+        //         .withVelocityY(-m_joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
+        //         .withRotationalRate(m_cameraSubsystem.calculateRotateFromTag(7)) // Drive counterclockwise with negative X (left)
+        // ));
 
         // reset the field-centric heading
         m_joystick.start().onTrue(m_driveSubsystem.runOnce(() -> {
