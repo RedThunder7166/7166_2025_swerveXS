@@ -22,6 +22,8 @@ public final class Constants {
     public static final int CORAL_STATION_RIGHT_TAGID = alliance == Alliance.Blue ? 12 : 2;
 
     // below values are in meters
+    public static final double INSIDE_REEF_ZONE_THRESHOLD = 1.6;
+
     private static final double CORAL_STATION_OFFSET_HORIZONTAL = 0.3;
     private static final double CORAL_STATION_OFFSET_VERTICAL = 0.3;
     public static final Translation2d CORAL_STATION_LEFT_OFFSET = alliance == Alliance.Blue ?

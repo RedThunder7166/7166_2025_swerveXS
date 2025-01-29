@@ -6,6 +6,7 @@ import java.util.function.Supplier;
 
 import com.ctre.phoenix6.SignalLogger;
 import com.ctre.phoenix6.Utils;
+import com.ctre.phoenix6.hardware.Pigeon2;
 import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
 import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
@@ -29,7 +30,7 @@ import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
-
+import frc.robot.Constants;
 import frc.robot.generated.TunerConstants.TunerSwerveDrivetrain;
 
 /**
@@ -201,19 +202,25 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     }
 
     private void initializeSwerve() {
+        Pigeon2 pigeon = getPigeon2();
         m_poseEstimator = new SwerveDrivePoseEstimator(
             m_customKinematics,
-            this.getPigeon2().getRotation2d(),
+            pigeon.getRotation2d(),
             getState().ModulePositions,
             getState().Pose
         );
+
+        registerTelemetry((SwerveDriveState state) -> {
+            m_poseEstimator.update(pigeon.getRotation2d(), state.ModulePositions);
+        });
 
         try {
             var config = RobotConfig.fromGUISettings();
             AutoBuilder.configure(
                 // () -> getState().Pose,   // Supplier of current robot pose
+                // this::resetPose,         // Consumer for seeding pose against auto
                 this::getCustomEstimatedPose,
-                this::resetPose,         // Consumer for seeding pose against auto // TODO: make resetPose affect our custom estimator??
+                this::resetCustomEstimatedPose,
                 () -> getState().Speeds, // Supplier of current robot speeds
                 // Consumer of ChassisSpeeds and feedforwards to drive the robot
                 (speeds, feedforwards) -> setControl(
@@ -228,9 +235,9 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
                     new PIDConstants(7, 0, 0)
                 ),
                 config,
-                // Assume the path needs to be flipped for Red vs Blue, this is normally the case
-                () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
-                this // Subsystem for requirements
+                // Assume the path needs to be flipped for Red vs Blue, this is normally the case // TODO: fact check this
+                () -> Constants.alliance == Alliance.Red,
+                this
             );
         } catch (Exception ex) {
             DriverStation.reportError("Failed to load PathPlanner config and configure AutoBuilder", ex.getStackTrace());
@@ -288,8 +295,6 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
                 m_hasAppliedOperatorPerspective = true;
             });
         }
-
-        m_poseEstimator.update(getPigeon2().getRotation2d(), getState().ModulePositions);
     }
 
     public void ensureThisFileHasBeenModified() {
@@ -307,8 +312,12 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         return m_poseEstimator.getEstimatedPosition();
     }
 
-    public void resetCustomRotation(Rotation2d rotation) {
+    public void resetCustomEstimatedRotation(Rotation2d rotation) {
         m_poseEstimator.resetRotation(rotation);
+    }
+
+    public void resetCustomEstimatedPose(Pose2d pose) {
+        m_poseEstimator.resetPose(pose);
     }
 
     private void startSimThread() {

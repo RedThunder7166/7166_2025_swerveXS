@@ -14,7 +14,7 @@ public class Robot extends TimedRobot {
   private final RobotContainer m_robotContainer;
 
   public Robot() {
-    m_robotContainer = new RobotContainer();
+    m_robotContainer = RobotContainer.getSingleton();
   }
 
   @Override

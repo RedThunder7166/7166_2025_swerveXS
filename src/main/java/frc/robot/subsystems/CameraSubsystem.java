@@ -28,12 +28,12 @@ import edu.wpi.first.net.PortForwarder;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.networktables.StructPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.LimelightHelpers;
+import frc.robot.RobotContainer;
 
 public class CameraSubsystem extends SubsystemBase {
     private static CameraSubsystem singleton = null;
@@ -46,7 +46,7 @@ public class CameraSubsystem extends SubsystemBase {
 
     private static final String limelightOneName = "limelight-fourone";
     private static final String limelightTwoName = "limelight-threeg";
-    private static final boolean useLimelightTwo = false;
+    private static final boolean useLimelightTwo = true;
 
     private static final HashMap<Integer, AprilTag> aprilTagMap = new HashMap<>();
     private static final HashMap<Integer, PathPlannerPath> aprilTagLineUpMap = new HashMap<>();
@@ -212,6 +212,7 @@ public class CameraSubsystem extends SubsystemBase {
         return true;
     }
 
+    private boolean m_insideReefZone = false;
     StructPublisher<Pose2d> swervePosePublisher = NetworkTableInstance.getDefault()
         .getStructTopic("MyPose", Pose2d.struct).publish();
     @Override
@@ -223,6 +224,17 @@ public class CameraSubsystem extends SubsystemBase {
         } else {
             updateVisionMegaTag1(limelightOneName);
             if (useLimelightTwo) updateVisionMegaTag1(limelightTwoName);
+        }
+
+        final RobotContainer robotContainer = RobotContainer.getSingleton();
+        final double distance = m_cachedPoseEstimate.getTranslation().getDistance(reefCenterTranslation);
+        SmartDashboard.putNumber("ReefZoneDistance", distance);
+        final boolean insideReefZone = distance <= Constants.INSIDE_REEF_ZONE_THRESHOLD;
+        if (insideReefZone != m_insideReefZone) {
+            SmartDashboard.putBoolean("InsideReefZone", insideReefZone);
+            // set field centric to be the opposite of if we're in the reef zone
+            robotContainer.setFieldCentric(m_insideReefZone); // optimization: m_insideReefZone should be the opposite
+            m_insideReefZone = insideReefZone;
         }
 
         swervePosePublisher.set(m_cachedPoseEstimate);
@@ -269,14 +281,55 @@ public class CameraSubsystem extends SubsystemBase {
         }
     }
 
-    public Command getPathCommandFromReefTag(int tagID) {
+    public static enum RelativeReefLocation {
+        AB(Constants.REEF_AB_TAGID),
+        CD(Constants.REEF_CD_TAGID),
+        EF(Constants.REEF_EF_TAGID),
+        GH(Constants.REEF_GH_TAGID),
+        IJ(Constants.REEF_IJ_TAGID),
+        KL(Constants.REEF_KL_TAGID);
+
+        private int m_tagID;
+        private RelativeReefLocation m_next;
+        private RelativeReefLocation m_previous;
+
+        static {
+            RelativeReefLocation first = AB;
+            RelativeReefLocation previous = KL;
+            RelativeReefLocation[] value_list = values();
+            for (int index = 0; index < value_list.length; index++) {
+                RelativeReefLocation value = value_list[index];
+                int next_index = index + 1;
+                value.m_next = next_index == value_list.length ? first : value_list[next_index];
+                value.m_previous = previous;
+                previous = value;
+                System.out.println("VALUE:" + value.toString() + "  PREVIOUS:" + value.m_previous.toString() + "  NEXT:" + value.m_next.toString());
+            }
+        }
+
+        RelativeReefLocation(int tagID) {
+            m_tagID = tagID;
+        }
+
+        public int getTagID() {
+            return m_tagID;
+        }
+
+        public RelativeReefLocation getNext() {
+            return m_next;
+        }
+        public RelativeReefLocation getPrevious() {
+            return m_previous;
+        }
+    }
+    public Command getPathCommandFromReefTag(RelativeReefLocation reefLocation) {
         // Pose2d robotPose = m_cachedPoseEstimate;
 
         // 29 inches
         final double offset = Units.inchesToMeters(25);
 
         // this code gets the target april tag position and applies a certain offset away from the reef
-        final AprilTag targetTag = aprilTagMap.get(tagID);
+        final AprilTag targetTag = aprilTagMap.get(reefLocation.m_tagID);
         final Pose2d targetTagPose = targetTag.pose.toPose2d();
         final Translation2d targetTagTranslation = targetTagPose.getTranslation();
         Translation2d directionVector = targetTagTranslation.minus(reefCenterTranslation); // get vector from center of reef to tag
@@ -321,20 +374,14 @@ public class CameraSubsystem extends SubsystemBase {
             m_tagID = tagID;
             m_offset = offset;
         }
-        public int getTagID() {
-            return m_tagID;
-        }
-        public Translation2d getOffset() {
-            return m_offset;
-        }
     }
     public Command getPathCommandFromCoralStationTag(CoralStationID coralStationID) {
         // this code gets the target april tag position and applies a certain offset away from the coral station
-        final AprilTag targetTag = aprilTagMap.get(coralStationID.getTagID());
+        final AprilTag targetTag = aprilTagMap.get(coralStationID.m_tagID);
         final Pose2d targetTagPose = targetTag.pose.toPose2d();
         final Translation2d targetTagTranslation = targetTagPose.getTranslation();
 
-        final Translation2d offset = coralStationID.getOffset();
+        final Translation2d offset = coralStationID.m_offset;
 
         Pose2d targetPose = new Pose2d(
             new Translation2d(targetTagTranslation.getX() + offset.getX(), targetTagTranslation.getY() + offset.getY()),
