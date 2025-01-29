@@ -112,6 +112,13 @@ public class RobotContainer {
             }
         ));
 
+        m_joystick.leftBumper().whileTrue(m_driveSubsystem.applyRequest(() -> {
+            return m_robotCentricDrive.withVelocityY(0.25 * MaxSpeed);
+        }));
+        m_joystick.rightBumper().whileTrue(m_driveSubsystem.applyRequest(() -> {
+            return m_robotCentricDrive.withVelocityY(-0.25 * MaxSpeed);
+        }));
+
         m_joystick.a().whileTrue(m_driveSubsystem.applyRequest(() -> m_brakeDrive));
         // m_joystick.b().whileTrue(m_driveSubsystem.applyRequest(() ->
         //     point.withModuleDirection(new Rotation2d(-m_joystick.getLeftY(), -m_joystick.getLeftX()))
@@ -146,7 +153,7 @@ public class RobotContainer {
         }));
 
         // path plan to tag
-        m_joystick.rightBumper().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
+        m_joystick.b().whileTrue(new CameraSubsystem.DynamicCommand(() -> {
             return m_cameraSubsystem.getPathCommandFromReefTag(m_targetReefLocation);
         }));
 

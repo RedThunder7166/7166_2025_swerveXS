@@ -233,7 +233,7 @@ public class CameraSubsystem extends SubsystemBase {
         if (insideReefZone != m_insideReefZone) {
             SmartDashboard.putBoolean("InsideReefZone", insideReefZone);
             // set field centric to be the opposite of if we're in the reef zone
-            robotContainer.setFieldCentric(m_insideReefZone); // optimization: m_insideReefZone should be the opposite
+            // robotContainer.setFieldCentric(m_insideReefZone); // optimization: m_insideReefZone should be the opposite
             m_insideReefZone = insideReefZone;
         }
 
