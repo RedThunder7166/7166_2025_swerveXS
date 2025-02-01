@@ -101,6 +101,93 @@ public class CameraSubsystem extends SubsystemBase {
         }
     }
 
+    public static final class DynamicCommand extends Command {
+        private final Supplier<Command> m_commandSupplier;
+        private Command m_command;
+        public DynamicCommand(Supplier<Command> commandSupplier) {
+            m_commandSupplier = commandSupplier;
+        }
+
+        @Override
+        public void initialize() {
+            m_command = m_commandSupplier.get();
+            m_command.schedule();
+        }
+        @Override
+        public boolean isFinished() {
+            return m_command.isFinished();
+        }
+        @Override
+        public void end(boolean interuppted) {
+            if (m_command.isScheduled())
+                m_command.cancel();
+        }
+    }
+
+    public static enum CoralStationID {
+        Left(Constants.CORAL_STATION_LEFT_TAGID, Constants.CORAL_STATION_LEFT_OFFSET),
+        Right(Constants.CORAL_STATION_RIGHT_TAGID, Constants.CORAL_STATION_RIGHT_OFFSET);
+
+        // private final int m_tagID;
+        private final Translation2d m_translation;
+        private final Rotation2d m_rotation;
+        private final Translation2d m_offset;
+
+        CoralStationID(int tagID, Translation2d offset) {
+            // m_tagID = tagID;
+            final Pose2d pose = aprilTagMap.get(tagID).pose.toPose2d();
+            m_translation = pose.getTranslation();
+            m_rotation = pose.getRotation();
+            m_offset = offset;
+        }
+    }
+
+    public static enum RelativeReefLocation {
+        AB(Constants.REEF_AB_TAGID),
+        CD(Constants.REEF_CD_TAGID),
+        EF(Constants.REEF_EF_TAGID),
+        GH(Constants.REEF_GH_TAGID),
+        IJ(Constants.REEF_IJ_TAGID),
+        KL(Constants.REEF_KL_TAGID);
+
+        private int m_tagID;
+        private Translation2d m_translation;
+        private Rotation2d m_rotation;
+        private RelativeReefLocation m_next;
+        private RelativeReefLocation m_previous;
+
+        static {
+            RelativeReefLocation first = AB;
+            RelativeReefLocation previous = KL;
+            RelativeReefLocation[] value_list = values();
+            for (int index = 0; index < value_list.length; index++) {
+                RelativeReefLocation value = value_list[index];
+                int next_index = index + 1;
+                value.m_next = next_index == value_list.length ? first : value_list[next_index];
+                value.m_previous = previous;
+                previous = value;
+            }
+        }
+
+        RelativeReefLocation(int tagID) {
+            m_tagID = tagID;
+            final Pose2d pose = aprilTagMap.get(tagID).pose.toPose2d();
+            m_translation = pose.getTranslation();
+            m_rotation = pose.getRotation();
+        }
+
+        public int getTagID() {
+            return m_tagID;
+        }
+
+        public RelativeReefLocation getNext() {
+            return m_next;
+        }
+        public RelativeReefLocation getPrevious() {
+            return m_previous;
+        }
+    }
+
     private static final double speedMultiplier = 2.5;
     private static final double rotatePID_P = 0.027;
     private static final double rangePID_P = 0.065;
@@ -110,6 +197,11 @@ public class CameraSubsystem extends SubsystemBase {
     private static final boolean tunePIDWithSmartDashboard = false;
 
     private Pose2d m_cachedPoseEstimate;
+
+    private boolean m_insideReefZone = false;
+
+    private final StructPublisher<Pose2d> swervePosePublisher = NetworkTableInstance.getDefault()
+        .getStructTopic("MyPose", Pose2d.struct).publish();
 
     private CommandSwerveDrivetrain m_driveSubsystem;
     private Pigeon2 m_pigeon2;
@@ -212,9 +304,19 @@ public class CameraSubsystem extends SubsystemBase {
         return true;
     }
 
-    private boolean m_insideReefZone = false;
-    StructPublisher<Pose2d> swervePosePublisher = NetworkTableInstance.getDefault()
-        .getStructTopic("MyPose", Pose2d.struct).publish();
+    public void updateInsideReefZone(Translation2d robotTranslation) {
+        // final RobotContainer robotContainer = RobotContainer.getSingleton();
+        final double distance = robotTranslation.getDistance(reefCenterTranslation);
+        SmartDashboard.putNumber("ReefZoneDistance", distance);
+        final boolean insideReefZone = distance <= Constants.INSIDE_REEF_ZONE_THRESHOLD;
+        if (insideReefZone != m_insideReefZone) {
+            SmartDashboard.putBoolean("InsideReefZone", insideReefZone);
+            // set field centric to be the opposite of if we're in the reef zone
+            // robotContainer.setFieldCentric(m_insideReefZone); // optimization: m_insideReefZone should be the opposite
+            m_insideReefZone = insideReefZone;
+        }
+    }
+
     @Override
     public void periodic() {
         m_cachedPoseEstimate = m_driveSubsystem.getCustomEstimatedPose();
@@ -226,16 +328,8 @@ public class CameraSubsystem extends SubsystemBase {
             if (useLimelightTwo) updateVisionMegaTag1(limelightTwoName);
         }
 
-        final RobotContainer robotContainer = RobotContainer.getSingleton();
-        final double distance = m_cachedPoseEstimate.getTranslation().getDistance(reefCenterTranslation);
-        SmartDashboard.putNumber("ReefZoneDistance", distance);
-        final boolean insideReefZone = distance <= Constants.INSIDE_REEF_ZONE_THRESHOLD;
-        if (insideReefZone != m_insideReefZone) {
-            SmartDashboard.putBoolean("InsideReefZone", insideReefZone);
-            // set field centric to be the opposite of if we're in the reef zone
-            // robotContainer.setFieldCentric(m_insideReefZone); // optimization: m_insideReefZone should be the opposite
-            m_insideReefZone = insideReefZone;
-        }
+        final Translation2d robotTranslation = m_cachedPoseEstimate.getTranslation();
+        updateInsideReefZone(robotTranslation);
 
         swervePosePublisher.set(m_cachedPoseEstimate);
     }
@@ -258,87 +352,18 @@ public class CameraSubsystem extends SubsystemBase {
         return result;
     }
 
-    public static final class DynamicCommand extends Command {
-        private final Supplier<Command> m_commandSupplier;
-        private Command m_command;
-        public DynamicCommand(Supplier<Command> commandSupplier) {
-            m_commandSupplier = commandSupplier;
-        }
-
-        @Override
-        public void initialize() {
-            m_command = m_commandSupplier.get();
-            m_command.schedule();
-        }
-        @Override
-        public boolean isFinished() {
-            return m_command.isFinished();
-        }
-        @Override
-        public void end(boolean interuppted) {
-            if (m_command.isScheduled())
-                m_command.cancel();
-        }
-    }
-
-    public static enum RelativeReefLocation {
-        AB(Constants.REEF_AB_TAGID),
-        CD(Constants.REEF_CD_TAGID),
-        EF(Constants.REEF_EF_TAGID),
-        GH(Constants.REEF_GH_TAGID),
-        IJ(Constants.REEF_IJ_TAGID),
-        KL(Constants.REEF_KL_TAGID);
-
-        private int m_tagID;
-        private RelativeReefLocation m_next;
-        private RelativeReefLocation m_previous;
-
-        static {
-            RelativeReefLocation first = AB;
-            RelativeReefLocation previous = KL;
-            RelativeReefLocation[] value_list = values();
-            for (int index = 0; index < value_list.length; index++) {
-                RelativeReefLocation value = value_list[index];
-                int next_index = index + 1;
-                value.m_next = next_index == value_list.length ? first : value_list[next_index];
-                value.m_previous = previous;
-                previous = value;
-                System.out.println("VALUE:" + value.toString() + "  PREVIOUS:" + value.m_previous.toString() + "  NEXT:" + value.m_next.toString());
-            }
-        }
-
-        RelativeReefLocation(int tagID) {
-            m_tagID = tagID;
-        }
-
-        public int getTagID() {
-            return m_tagID;
-        }
-
-        public RelativeReefLocation getNext() {
-            return m_next;
-        }
-        public RelativeReefLocation getPrevious() {
-            return m_previous;
-        }
-    }
     public Command getPathCommandFromReefTag(RelativeReefLocation reefLocation) {
-        // Pose2d robotPose = m_cachedPoseEstimate;
-
-        // 29 inches
         final double offset = Units.inchesToMeters(25);
 
         // this code gets the target april tag position and applies a certain offset away from the reef
-        final AprilTag targetTag = aprilTagMap.get(reefLocation.m_tagID);
-        final Pose2d targetTagPose = targetTag.pose.toPose2d();
-        final Translation2d targetTagTranslation = targetTagPose.getTranslation();
+        final Translation2d targetTagTranslation = reefLocation.m_translation;
         Translation2d directionVector = targetTagTranslation.minus(reefCenterTranslation); // get vector from center of reef to tag
         final double directionVectorMagnitude = Math.sqrt(Math.pow(directionVector.getX(), 2) + Math.pow(directionVector.getY(), 2)); // get magnitude
         directionVector = new Translation2d(directionVector.getX() / directionVectorMagnitude, directionVector.getY() / directionVectorMagnitude); // normalize
 
         Pose2d targetPose = new Pose2d(
             new Translation2d(targetTagTranslation.getX() + directionVector.getX() * offset, targetTagTranslation.getY() + directionVector.getY() * offset),
-            targetTagPose.getRotation().plus(Rotation2d.k180deg)
+            reefLocation.m_rotation.plus(Rotation2d.k180deg)
         );
 
         SmartDashboard.putNumber("PATHFINDING_POSEX", targetPose.getX());
@@ -363,29 +388,15 @@ public class CameraSubsystem extends SubsystemBase {
         return result;
     }
 
-    public static enum CoralStationID {
-        Left(Constants.CORAL_STATION_LEFT_TAGID, Constants.CORAL_STATION_LEFT_OFFSET),
-        Right(Constants.CORAL_STATION_RIGHT_TAGID, Constants.CORAL_STATION_RIGHT_OFFSET);
-
-        private final int m_tagID;
-        private final Translation2d m_offset;
-
-        CoralStationID(int tagID, Translation2d offset) {
-            m_tagID = tagID;
-            m_offset = offset;
-        }
-    }
     public Command getPathCommandFromCoralStationTag(CoralStationID coralStationID) {
         // this code gets the target april tag position and applies a certain offset away from the coral station
-        final AprilTag targetTag = aprilTagMap.get(coralStationID.m_tagID);
-        final Pose2d targetTagPose = targetTag.pose.toPose2d();
-        final Translation2d targetTagTranslation = targetTagPose.getTranslation();
+        final Translation2d targetTagTranslation = coralStationID.m_translation;
 
         final Translation2d offset = coralStationID.m_offset;
 
         Pose2d targetPose = new Pose2d(
             new Translation2d(targetTagTranslation.getX() + offset.getX(), targetTagTranslation.getY() + offset.getY()),
-            targetTagPose.getRotation()
+            coralStationID.m_rotation
         );
 
         SmartDashboard.putNumber("PATHFINDING_POSEX", targetPose.getX());
